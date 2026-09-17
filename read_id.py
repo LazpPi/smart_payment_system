@@ -27,3 +27,6 @@ try:
         clf.connect(rdwr={'on-connect': on_connect})
 except Exception as e:
     print(f"エラーが発生しました: {e}")
+# Ctrl+C が押されたときの安全な終了処理
+except KeyboardInterrupt:
+    print("\n\n🛑 管理者操作により、システムを安全に終了しました。")
