@@ -14,12 +14,12 @@ CSV_FILE = "visit_history.csv"
 SUBSCRIBERS_FILE = "subscribers.json"
 
 # 音声ファイルのパス
-WAV_SUCCESS = "sound/thank_you.wav"  # 通常決済用
-WAV_RETRY = "sound/retouch.wav"      # エラー時用
-WAV_RESET = "sound/reset.wav"        # タイムアウト時用
-WAV_PAY = "sound/pay.wav"            # 未登録者の0円タッチ用
+WAV_SUCCESS = "sound/thank_you.wav"
+WAV_RETRY = "sound/retouch.wav"
+WAV_RESET = "sound/reset.wav"
+WAV_PAY = "sound/pay.wav"
 
-# M5StickCとの通信設定 (※ご自身の環境に合わせて変更してください)
+# M5StickCとの通信設定
 SERIAL_PORT = '/dev/ttyACM0'
 SERIAL_BAUD = 115200
 
@@ -31,8 +31,6 @@ ser = None
 def play_sound(file_path):
     if os.path.exists(file_path):
         subprocess.Popen(["aplay", "-D", "plughw:2,0", "-q", file_path], stderr=subprocess.DEVNULL)
-    else:
-        print(f"⚠️ 音声ファイルが見つかりません: {file_path}")
 
 def load_subscribers():
     if os.path.exists(SUBSCRIBERS_FILE):
@@ -59,10 +57,10 @@ def check_serial():
     if current_amount > 0:
         elapsed_time = time.time() - last_coin_time
         if elapsed_time >= 30.0:
-            print("\n⏳ 30秒間タッチされなかったため、投入金額をリセットします。")
+            print("\n⏳ 30秒経過。金額をリセットします。")
             play_sound(WAV_RESET)
             if ser and ser.is_open:
-                ser.write(b"RESET\n")
+                ser.write(b"TIMEOUT\n")  # TIMEOUTコマンドを送信
             current_amount = 0
             print("\n次の学生証をタッチしてください...")
 
@@ -92,95 +90,82 @@ def on_connect(tag):
         if match:
             student_id = match.group()
             print(f"🎉 読み取り成功！ 学生番号: 【 {student_id} 】")
-
             subscribers = load_subscribers()
 
             if current_amount == 0:
                 if student_id in subscribers:
                     subscribers[student_id]["used_count"] += 1
                     count = subscribers[student_id]["used_count"]
-                    
-                    # 再生する音声ファイル名を杯数から動的に生成 (例: sound/3.wav)
                     sub_wav = f"sound/{count}.wav"
                     
-                    # === 10杯目の自動解除処理 ===
                     if count >= 10:
-                        print(f"☕️ サブスク決済成功: {count}杯目")
-                        print("🎊 10杯目に到達しました！サブスクリプションを終了（自動解除）します。")
-                        
+                        print(f"🎊 10杯目に到達！サブスク自動解除。")
                         del subscribers[student_id]
                         save_subscribers(subscribers)
-                        
-                        play_sound(sub_wav)  # 10.wav を再生
-                        log_to_csv(student_id, f"コーヒー（サブスク {count}杯目・満了）")
+                        play_sound(sub_wav)
+                        log_to_csv(student_id, f"サブスク {count}杯目(満了)")
                     else:
                         save_subscribers(subscribers)
-                        print(f"☕️ サブスク決済成功: {count}杯目")
-                        play_sound(sub_wav)  # 1.wav〜9.wav を再生
-                        log_to_csv(student_id, f"コーヒー（サブスク {count}杯目）")
+                        play_sound(sub_wav)
+                        log_to_csv(student_id, f"サブスク {count}杯目")
+                    
+                    # 画面に「〇杯目」と表示させる
+                    if ser and ser.is_open:
+                        ser.write(f"SUB:{count}\n".encode())
                 else:
-                    print("⚠️ サブスク未登録です。300円を投入してからタッチしてください。")
-                    play_sound(WAV_PAY)  # retouch.wavからpay.wavに変更
+                    play_sound(WAV_PAY)
+                    # 未登録時は「再度カードタッチ」とは少し意味が違うため、今は画面変更なし（またはRETRY）
+                    if ser and ser.is_open:
+                        ser.write(b"RETRY\n")
 
             elif current_amount == 300 and student_id not in subscribers:
-                # === 新規登録処理（1杯目としてカウント） ===
-                print(f"🎊 新規サブスク登録完了！ようこそ、【 {student_id} 】さん！")
-                
+                print(f"🎊 新規サブスク登録完了！")
                 subscribers[student_id] = {"used_count": 1}
                 save_subscribers(subscribers)
-                
-                play_sound("sound/1.wav")  # 登録時も1杯目なので 1.wav を再生
-                log_to_csv(student_id, "サブスク新規登録(300円)・1杯目")
+                play_sound("sound/1.wav")
+                log_to_csv(student_id, "新規登録(300円)・1杯目")
                 
                 if ser and ser.is_open:
-                    ser.write(b"RESET\n")
+                    ser.write(b"SUB:1\n") # 登録時も1杯目と表示
                 current_amount = 0
 
             else:
-                print(f"🪙 通常決済成功: {current_amount}円分を購入しました")
+                print(f"🪙 通常決済成功: {current_amount}円")
                 log_to_csv(student_id, f"通常決済({current_amount}円)")
-                play_sound(WAV_SUCCESS)  # 通常の現金決済は thank_you.wav
+                play_sound(WAV_SUCCESS)
                 
                 if ser and ser.is_open:
-                    ser.write(b"RESET\n")
+                    ser.write(b"NORMAL\n") # 通常決済のメッセージ表示
                 current_amount = 0
 
         else:
-            print("⚠️ 学生番号が見つかりませんでした。もう一度正しくタッチしてください。")
+            print("⚠️ 学生番号なし")
             play_sound(WAV_RETRY)
+            if ser and ser.is_open:
+                ser.write(b"RETRY\n") # 再タッチを促すメッセージ
 
     except Exception as e:
-        print("⚠️ 読み取りエラーが発生しました。もう一度しっかりタッチしてください。")
+        print("⚠️ 読み取りエラー")
         play_sound(WAV_RETRY)
+        if ser and ser.is_open:
+            ser.write(b"RETRY\n")
 
     return True
 
 # === メイン処理 ===
-print("システム起動。M5StickCと接続しています...")
 try:
     ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0.1)
-    print("✅ M5StickCとの通信準備完了！")
+    print("✅ M5StickCと接続完了")
 except Exception as e:
     print(f"⚠️ エラー: シリアルポート({SERIAL_PORT})が開けません。")
-
-print("========================================")
-print("学生証をタッチして決済を開始してください")
-print("========================================")
 
 try:
     with nfc.ContactlessFrontend('usb') as clf:
         while True:
             result = clf.connect(rdwr={'on-connect': on_connect}, terminate=check_serial)
-            
-            if result is False:
-                print("\n\n🛑 管理者操作により、システムを安全に終了しました。")
-                break
-            
+            if result is False: break
             time.sleep(1.5)
-            print("\n次の学生証をタッチしてください...")
-
 except Exception as e:
-    print(f"システムエラーが発生しました: {e}")
+    print(f"システムエラー: {e}")
 finally:
-    if ser and ser.is_open:
-        ser.close()
+    if ser and ser.is_open: ser.close()
