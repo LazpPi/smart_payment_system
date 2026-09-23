@@ -1,0 +1,16 @@
+[Unit]
+Description=Cafe Pro Payment System
+After=multi-user.target
+
+[Service]
+Type=simple
+# nfcpyを動かすため、root(管理者)権限で実行する
+User=root
+WorkingDirectory=/home/karakuri/cafe-project/pasori
+ExecStart=/usr/bin/python3 /home/karakuri/cafe-project/pasori/read_id.py
+# エラーで落ちても、5秒後に自動で再起動する設定
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
