@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>zemicafe-dashboard</title>
+    <!-- 見た目をモダンにするためのTailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">☕️ ゼミカフェ リアルタイム売上ダッシュボード</h1>
+        
+        <div class="overflow-x-auto">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-800 text-white">
+                    <tr>
+                        <th class="px-4 py-3 text-left">日時</th>
+                        <th class="px-4 py-3 text-left">学籍番号</th>
+                        <th class="px-4 py-3 text-left">利用内容</th>
+                    </tr>
+                </thead>
+                <tbody id="history-table-body" class="text-gray-700">
+                    <!-- ここにFirebaseから取得したデータが自動で入ります -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Firebaseの処理 -->
+    <script type="module">
+        // 1. Firebaseの機能をインポート (v10 SDK)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
+        import { getFirestore, collection, query, orderBy, limit, onSnapshot } 
+            from "https://www.gstatic.com/firebasejs/10.4.0/firebase-firestore.js";
+
+        // 2. 先ほどの画面で取得したあなたのFirebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyBUJY4D32Qh9OA13uK7Rpx-tb4dLa7yT7U",
+            authDomain: "cafe-project-2258d.firebaseapp.com",
+            projectId: "cafe-project-2258d",
+            storageBucket: "cafe-project-2258d.firebasestorage.app",
+            messagingSenderId: "935207150759",
+            appId: "1:935207150759:web:f1b975c0cba0260431a782"
+        };
+
+        // 3. Firebaseとデータベース(Firestore)の初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // 4. 履歴データをリアルタイムで取得する処理
+        const q = query(collection(db, "history"), orderBy("timestamp", "desc"), limit(50));
+        const tableBody = document.getElementById("history-table-body");
+
+        // onSnapshotを使うことで、ラズパイからデータが送られた瞬間に画面が自動更新されます
+        onSnapshot(q, (snapshot) => {
+            tableBody.innerHTML = ""; // 表を一旦クリア
+            
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                // 日時データのフォーマットを整える
+                const date = data.timestamp ? data.timestamp.toDate().toLocaleString('ja-JP') : "不明";
+                
+                // 行(tr)を作成して表に追加
+                const tr = document.createElement("tr");
+                tr.className = "border-b hover:bg-gray-50";
+                tr.innerHTML = `
+                    <td class="px-4 py-3">${date}</td>
+                    <td class="px-4 py-3 font-mono">${data.student_id || ""}</td>
+                    <td class="px-4 py-3 font-semibold text-blue-600">${data.item || ""}</td>
+                `;
+                tableBody.appendChild(tr);
+            });
+        });
+    </script>
+</body>
+</html>
