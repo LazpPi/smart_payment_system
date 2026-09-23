@@ -6,14 +6,13 @@ import os
 import json
 import subprocess
 import serial
-from datetime import datetime
+from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 
 # === Firebase 初期化 ===
 try:
-    # firebase-key.json が同じフォルダにあることを前提としています
     cred = credentials.Certificate("../firebase-key.json")
     firebase_admin.initialize_app(cred)
     db = firestore.client()
@@ -33,7 +32,7 @@ WAV_RETRY = "sound/retouch.wav"
 WAV_RESET = "sound/reset.wav"
 WAV_PAY = "sound/pay.wav"
 
-# M5StickCとの通信設定 (※環境に合わせて変更してください)
+# M5StickCとの通信設定
 SERIAL_PORT = '/dev/ttyACM0'
 SERIAL_BAUD = 115200
 
@@ -69,7 +68,7 @@ def log_to_firestore(student_id, item_name):
     if db is None:
         return
     try:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         # history コレクションに新しいドキュメントを追加
         db.collection("history").add({
             "timestamp": now,
