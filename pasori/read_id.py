@@ -38,6 +38,7 @@ SERIAL_BAUD = 115200
 
 # グローバル変数
 current_amount = 0
+game_coin_count = 0 # 追加: ゲームコインの枚数管理
 last_coin_time = 0
 ser = None
 
@@ -69,7 +70,6 @@ def log_to_firestore(student_id, item_name):
         return
     try:
         now = datetime.now(timezone.utc)
-        # history コレクションに新しいドキュメントを追加
         db.collection("history").add({
             "timestamp": now,
             "student_id": student_id,
@@ -80,37 +80,53 @@ def log_to_firestore(student_id, item_name):
         print(f"⚠️ Firebaseへの送信エラー: {e}")
 
 def check_serial():
-    global current_amount, last_coin_time
+    global current_amount, game_coin_count, last_coin_time
     
     # 30秒間放置によるタイムアウト処理
-    if current_amount > 0:
+    if current_amount > 0 or game_coin_count > 0:
         elapsed_time = time.time() - last_coin_time
         if elapsed_time >= 30.0:
-            print("\n⏳ 30秒経過。金額をリセットします。")
+            print("\n⏳ 30秒経過。入力をリセットします。")
             play_sound(WAV_RESET)
             if ser and ser.is_open:
-                ser.write(b"TIMEOUT\n")  # M5StickCにTIMEOUTを表示させる
+                ser.write(b"TIMEOUT\n")
             current_amount = 0
+            game_coin_count = 0
             print("\n次の学生証をタッチしてください...")
 
-    # M5StickCからのコイン投入データを受信
+    # M5StickCからのデータ受信
     if ser and ser.in_waiting > 0:
         try:
             lines = ser.readlines()
             last_line = lines[-1].decode('utf-8', errors='ignore').strip()
             
-            if last_line.isdigit():
-                new_amount = int(last_line)
+            # 通常の金額データを受信した場合
+            if last_line.startswith("AMT:"):
+                new_amount = int(last_line.split(":")[1])
                 if new_amount != current_amount:
                     current_amount = new_amount
                     last_coin_time = time.time()
                     print(f"💰 現在の投入合計: {current_amount}円")
+            
+            # ゲームコインデータを受信した場合
+            elif last_line.startswith("GC:"):
+                new_gc = int(last_line.split(":")[1])
+                if new_gc != game_coin_count:
+                    game_coin_count = new_gc
+                    last_coin_time = time.time()
+                    print(f"🪙 ゲームコイン: {game_coin_count}枚")
+            
+            # リセットボタンが押された場合
+            elif last_line == "RESET_ALL":
+                current_amount = 0
+                game_coin_count = 0
+                
         except Exception as e:
             pass
     return False
 
 def on_connect(tag):
-    global current_amount
+    global current_amount, game_coin_count
     print("\nカード情報を処理しています...")
     
     try:
@@ -122,7 +138,22 @@ def on_connect(tag):
             print(f"🎉 読み取り成功！ 学生番号: 【 {student_id} 】")
             subscribers = load_subscribers()
 
-            if current_amount == 0:
+            # ①ゲームコインが投入されている場合（最優先で処理）
+            if game_coin_count > 0:
+                item_name = f"ゲームコイン*{game_coin_count}"
+                print(f"🪙 {item_name} で決済完了")
+                log_to_csv(student_id, item_name)
+                log_to_firestore(student_id, item_name)
+                play_sound(WAV_SUCCESS)
+                
+                if ser and ser.is_open:
+                    ser.write(b"NORMAL\n")
+                
+                current_amount = 0
+                game_coin_count = 0
+
+            # ②何も投入されていない場合（サブスク利用）
+            elif current_amount == 0:
                 if student_id in subscribers:
                     subscribers[student_id]["used_count"] += 1
                     count = subscribers[student_id]["used_count"]
@@ -141,7 +172,6 @@ def on_connect(tag):
                         log_to_csv(student_id, f"サブスク {count}杯目")
                         log_to_firestore(student_id, f"サブスク {count}杯目")
                     
-                    # M5StickCに「Sub: 〇」を表示させる
                     if ser and ser.is_open:
                         ser.write(f"SUB:{count}\n".encode())
                 else:
@@ -150,6 +180,7 @@ def on_connect(tag):
                     if ser and ser.is_open:
                         ser.write(b"RETRY\n")
 
+            # ③300円投入時の新規サブスク登録
             elif current_amount == 300 and student_id not in subscribers:
                 print(f"🎊 新規サブスク登録完了！")
                 subscribers[student_id] = {"used_count": 1}
@@ -159,9 +190,10 @@ def on_connect(tag):
                 log_to_firestore(student_id, "新規登録(300円)・1杯目")
                 
                 if ser and ser.is_open:
-                    ser.write(b"SUB:1\n") # 登録時も1杯目と表示
+                    ser.write(b"SUB:1\n")
                 current_amount = 0
 
+            # ④通常の現金決済
             else:
                 print(f"🪙 通常決済成功: {current_amount}円")
                 log_to_csv(student_id, f"通常決済({current_amount}円)")
@@ -169,7 +201,7 @@ def on_connect(tag):
                 play_sound(WAV_SUCCESS)
                 
                 if ser and ser.is_open:
-                    ser.write(b"NORMAL\n") # 「Thank You!」を表示
+                    ser.write(b"NORMAL\n")
                 current_amount = 0
 
         else:
