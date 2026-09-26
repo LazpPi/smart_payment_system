@@ -24,6 +24,7 @@ bool csDisable = false;
 
 // === ラズパイ連携用の変数 ===
 int totalAmount = 0; 
+int gameCoinCount = 0; // ゲームコイン用の変数を追加
 const int coinValues[MaxCoinKinds] = {0, 100, 50, 10, 0}; 
 
 // === 画面フィードバック用の変数 ===
@@ -32,7 +33,7 @@ unsigned long messageEndTime = 0;
 String currentMessage = "";
 int currentMsgColor = TFT_WHITE;
 
-// コインカウント用のバックグラウンド処理（元のまま）
+// コインカウント用のバックグラウンド処理
 void CoinTask(void *pvParameters){
   int cnt=0;
   while(1){
@@ -63,13 +64,12 @@ void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
     Serial.begin(115200);
-    Serial.setTimeout(10); // コイン読み取りフリーズ防止のため追加
+    Serial.setTimeout(10); 
 
     initCoin();
 
-    M5.Display.setRotation(1); // 横向き
+    M5.Display.setRotation(1); 
     
-    // カラー表現を豊かにするため、元のsetColorDepth(2)を削除しデフォルト設定を使用
     canvas.createSprite(display.width(), display.height());
     canvas.setFont(FontJP);
     
@@ -91,15 +91,22 @@ void loop() {
             isMessageShowing = true;
             messageEndTime = millis() + 5000;
             totalAmount = 0;
+            gameCoinCount = 0;
         } else if (cmd == "NORMAL") {
             currentMessage = "Thank You!";
             currentMsgColor = TFT_GREEN;
             isMessageShowing = true;
             messageEndTime = millis() + 5000;
             totalAmount = 0;
+            gameCoinCount = 0;
         } else if (cmd == "RETRY") {
             currentMessage = "Touch Again";
             currentMsgColor = TFT_RED;
+            isMessageShowing = true;
+            messageEndTime = millis() + 5000;
+        } else if (cmd == "NO_MONEY") {
+            currentMessage = "No Money";
+            currentMsgColor = TFT_ORANGE;
             isMessageShowing = true;
             messageEndTime = millis() + 5000;
         } else if (cmd == "TIMEOUT") {
@@ -108,18 +115,19 @@ void loop() {
             isMessageShowing = true;
             messageEndTime = millis() + 5000;
             totalAmount = 0;
+            gameCoinCount = 0;
         } else if (cmd == "RESET") {
             totalAmount = 0;
+            gameCoinCount = 0;
             isMessageShowing = false;
         }
     }
 
-    // === 2. メッセージ表示の5秒タイムアウト判定 ===
     if (isMessageShowing && millis() > messageEndTime) {
         isMessageShowing = false;
     }
 
-    // === 3. コイン投入時の処理（元のまま） ===
+    // === 3. コイン投入時の処理 ===
     if(bCoin){
         int cn=coinNo;
         vTaskSuspend(hCoinTask);
@@ -130,19 +138,25 @@ void loop() {
         if((cn>=0)&&(cn<MaxCoinKinds)){
             cCounter[cn]++;
             
-            // 金額を加算してラズパイに送信
-            totalAmount += coinValues[cn];
-            Serial.println(totalAmount);
+            if (cn == 0) {
+                // インデックス0（パルス1回）をゲームコインとして処理
+                gameCoinCount++;
+                Serial.printf("GC:%d\n", gameCoinCount); // ラズパイに「GC:枚数」を送信
+            } else {
+                // それ以外は通常の金額として処理
+                totalAmount += coinValues[cn];
+                Serial.printf("AMT:%d\n", totalAmount); // ラズパイに「AMT:金額」を送信
+            }
             
-            // コインが入った瞬間、メッセージを解除して金額画面に戻す
             isMessageShowing = false;
         }
     }
     
-    // === ボタン操作処理（元のまま） ===
+    // === ボタン操作処理 ===
     if(M5.BtnA.wasPressed()){
         totalAmount = 0;
-        Serial.println("0"); 
+        gameCoinCount = 0;
+        Serial.println("RESET_ALL"); 
         isMessageShowing = false;
         for(uint8_t i = 0; i < MaxCoinKinds; i++){
             cCounter[i]=0;
@@ -160,20 +174,26 @@ void loop() {
     canvas.fillSprite(TFT_BLACK);
     
     if (isMessageShowing) {
-        // メッセージ表示（英語）
         canvas.setTextSize(2);
-        canvas.setTextColor(currentMsgColor); // 緑や赤など状態に応じた色
+        canvas.setTextColor(currentMsgColor);
         canvas.setCursor(10, 20);
         canvas.println(currentMessage);
     } else {
-        // 通常の金額表示（「合計金額」は元の日本語フォントを活かしています）
         canvas.setTextSize(1);
         canvas.setTextColor(TFT_WHITE);
-        canvas.drawString("合計金額:", 10, 5);
+        canvas.drawString("投入状況:", 10, 5); // 汎用的な名前に変更
         
-        canvas.setCursor(10, 30);
+        canvas.setCursor(10, 25);
         canvas.setTextSize(2);
-        canvas.printf("%d Yen", totalAmount);
+        
+        // 現金とゲームコインの投入状態によって表示を切り替え
+        if (totalAmount > 0 && gameCoinCount > 0) {
+            canvas.printf("%d Yen\nGC * %d", totalAmount, gameCoinCount);
+        } else if (gameCoinCount > 0) {
+            canvas.printf("Game Coin * %d", gameCoinCount);
+        } else {
+            canvas.printf("%d Yen", totalAmount);
+        }
     }
     
     canvas.pushSprite(0, 0);

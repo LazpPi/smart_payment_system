@@ -178,7 +178,7 @@ def on_connect(tag):
                     print("⚠️ サブスク未登録です。300円を投入してからタッチしてください。")
                     play_sound(WAV_PAY)
                     if ser and ser.is_open:
-                        ser.write(b"RETRY\n")
+                        ser.write(b"NO_MONEY\n")
 
             # ③300円投入時の新規サブスク登録
             elif current_amount == 300 and student_id not in subscribers:
