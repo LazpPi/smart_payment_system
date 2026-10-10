@@ -1,7 +1,7 @@
 # スマート決済管理システム
 
 ## デモンストレーション動画
-![動作デモ](https://github.com/user-attachments/assets/a8e74111-6424-421b-ae0c-0866c054fa25)
+https://github.com/user-attachments/assets/a8e74111-6424-421b-ae0c-0866c054fa25
 
 ## 使用技術 (Tech Stack)
 
