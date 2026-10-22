@@ -128,6 +128,11 @@ def check_serial():
 def on_connect(tag):
     global current_amount, game_coin_count
     print("\nカード情報を処理しています...")
+
+    # === 【バグ対策】タッチされた瞬間に最新の金額データを取得し直す ===
+    time.sleep(0.1) # M5StickCから最後のデータが届くのをわずかに待つ
+    check_serial()  # バッファに溜まっている最後の金額を current_amount に反映
+    # ==========================================================
     
     try:
         data = "\n".join(tag.dump())
